@@ -5,6 +5,8 @@
 # Virtual environment
 venv/
 
+deployment/
+
 # Python
 __pycache__/
 *.py[cod]
