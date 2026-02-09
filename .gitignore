@@ -32,3 +32,9 @@ Thumbs.db
 
 gcp-key.json
 service-account.json
+# Test and Deployment files
+check_firestore.py
+deploy.sh
+test_full_round.py
+test_gcp_services.py
+
