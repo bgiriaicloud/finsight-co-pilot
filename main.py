@@ -431,36 +431,50 @@ def render_company_analysis():
     period = col2.selectbox("Chart Period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
     analyze_btn = col3.button("🔍 Analyze", width="stretch", key="analyze_company_btn")
 
+    # Fetch data on button click and persist in session state
     if analyze_btn and ticker:
-        ticker = ticker.strip().upper()
-
-        with st.spinner(f"Analyzing {ticker}..."):
-            from utils.data_providers import get_key_metrics, format_large_number, format_percentage
-
-            metrics = get_key_metrics(ticker)
-
+        _ticker = ticker.strip().upper()
+        with st.spinner(f"Analyzing {_ticker}..."):
+            from utils.data_providers import get_key_metrics
+            metrics = get_key_metrics(_ticker)
         if "error" in metrics:
-            st.error(f"Could not fetch data for {ticker}. Please check the ticker symbol.")
+            st.error(f"Could not fetch data for {_ticker}. Please check the ticker symbol.")
+            st.session_state.pop("ca_metrics", None)
+            st.session_state.pop("ca_ticker", None)
             return
+        st.session_state["ca_metrics"] = metrics
+        st.session_state["ca_ticker"] = _ticker
+        st.session_state.pop("ca_ai_result", None)  # clear stale AI result
 
-        company_name = metrics.get("longName") or metrics.get("shortName", ticker)
+    # Show persisted analysis if available
+    if "ca_metrics" not in st.session_state:
+        st.info("Enter a ticker symbol above and click **Analyze** to start.")
+        return
 
-        # Company header
-        st.markdown(f"## {company_name} ({ticker})")
-        st.markdown(f"**{metrics.get('sector', '')}** | {metrics.get('industry', '')} | Employees: {metrics.get('fullTimeEmployees', 'N/A'):,}")
+    metrics = st.session_state["ca_metrics"]
+    active_ticker = st.session_state["ca_ticker"]
+    from utils.data_providers import format_large_number, format_percentage
 
-        # Key metrics cards
-        st.markdown("### Key Metrics")
-        m_cols = st.columns(5)
-        metric_items = [
-            ("Price", f"${metrics.get('currentPrice', 'N/A')}", f"Target: ${metrics.get('targetMeanPrice', 'N/A')}"),
-            ("Market Cap", format_large_number(metrics.get("marketCap")), f"P/E: {metrics.get('trailingPE', 'N/A')}"),
-            ("Revenue", format_large_number(metrics.get("totalRevenue")), f"Growth: {format_percentage(metrics.get('revenueGrowth'))}"),
-            ("Margins", format_percentage(metrics.get("grossMargins")), f"Net: {format_percentage(metrics.get('profitMargins'))}"),
-            ("FCF", format_large_number(metrics.get("freeCashflow")), f"D/E: {metrics.get('debtToEquity', 'N/A')}"),
-        ]
-        for i, (label, value, subtitle) in enumerate(metric_items):
-            m_cols[i].markdown(f"""
+    company_name = metrics.get("longName") or metrics.get("shortName", active_ticker)
+
+    # Company header
+    st.markdown(f"## {company_name} ({active_ticker})")
+    emp = metrics.get("fullTimeEmployees")
+    emp_str = f"{emp:,}" if isinstance(emp, (int, float)) else "N/A"
+    st.markdown(f"**{metrics.get('sector', '')}** | {metrics.get('industry', '')} | Employees: {emp_str}")
+
+    # Key metrics cards
+    st.markdown("### Key Metrics")
+    m_cols = st.columns(5)
+    metric_items = [
+        ("Price", f"${metrics.get('currentPrice', 'N/A')}", f"Target: ${metrics.get('targetMeanPrice', 'N/A')}"),
+        ("Market Cap", format_large_number(metrics.get("marketCap")), f"P/E: {metrics.get('trailingPE', 'N/A')}"),
+        ("Revenue", format_large_number(metrics.get("totalRevenue")), f"Growth: {format_percentage(metrics.get('revenueGrowth'))}"),
+        ("Margins", format_percentage(metrics.get("grossMargins")), f"Net: {format_percentage(metrics.get('profitMargins'))}"),
+        ("FCF", format_large_number(metrics.get("freeCashflow")), f"D/E: {metrics.get('debtToEquity', 'N/A')}"),
+    ]
+    for i, (label, value, subtitle) in enumerate(metric_items):
+        m_cols[i].markdown(f"""
 <div class="metric-card">
     <h3>{label}</h3>
     <h1>{value}</h1>
@@ -468,81 +482,84 @@ def render_company_analysis():
 </div>
 """, unsafe_allow_html=True)
 
-        st.markdown("")
+    st.markdown("")
 
-        # Charts section
-        col_chart, col_info = st.columns([3, 2])
+    # Charts section
+    col_chart, col_info = st.columns([3, 2])
 
-        with col_chart:
-            fig = create_price_chart(ticker, period)
-            if fig:
-                st.plotly_chart(fig, width="stretch")
+    with col_chart:
+        fig = create_price_chart(active_ticker, period)
+        if fig:
+            st.plotly_chart(fig, width="stretch")
 
-        with col_info:
-            st.markdown("### Valuation & Returns")
-            val_data = {
-                "Metric": ["P/E (TTM)", "Forward P/E", "PEG Ratio", "P/B Ratio", "EV/Revenue", "Dividend Yield"],
-                "Value": [
-                    metrics.get("trailingPE", "N/A"),
-                    metrics.get("forwardPE", "N/A"),
-                    metrics.get("pegRatio", "N/A"),
-                    metrics.get("priceToBook", "N/A"),
-                    round(metrics.get("enterpriseValue", 0) / metrics.get("totalRevenue", 1), 2)
-                    if metrics.get("enterpriseValue") and metrics.get("totalRevenue") else "N/A",
-                    format_percentage(metrics.get("dividendYield")),
-                ],
-            }
-            st.dataframe(pd.DataFrame(val_data), width="stretch", hide_index=True)
+    with col_info:
+        st.markdown("### Valuation & Returns")
+        val_data = {
+            "Metric": ["P/E (TTM)", "Forward P/E", "PEG Ratio", "P/B Ratio", "EV/Revenue", "Dividend Yield"],
+            "Value": [
+                metrics.get("trailingPE", "N/A"),
+                metrics.get("forwardPE", "N/A"),
+                metrics.get("pegRatio", "N/A"),
+                metrics.get("priceToBook", "N/A"),
+                round(metrics.get("enterpriseValue", 0) / metrics.get("totalRevenue", 1), 2)
+                if metrics.get("enterpriseValue") and metrics.get("totalRevenue") else "N/A",
+                format_percentage(metrics.get("dividendYield")),
+            ],
+        }
+        st.dataframe(pd.DataFrame(val_data), width="stretch", hide_index=True)
 
-            st.markdown("### Returns & Efficiency")
-            ret_data = {
-                "Metric": ["ROE", "ROA", "Gross Margin", "Op Margin", "Net Margin", "Beta"],
-                "Value": [
-                    format_percentage(metrics.get("returnOnEquity")),
-                    format_percentage(metrics.get("returnOnAssets")),
-                    format_percentage(metrics.get("grossMargins")),
-                    format_percentage(metrics.get("operatingMargins")),
-                    format_percentage(metrics.get("profitMargins")),
-                    metrics.get("beta", "N/A"),
-                ],
-            }
-            st.dataframe(pd.DataFrame(ret_data), width="stretch", hide_index=True)
+        st.markdown("### Returns & Efficiency")
+        ret_data = {
+            "Metric": ["ROE", "ROA", "Gross Margin", "Op Margin", "Net Margin", "Beta"],
+            "Value": [
+                format_percentage(metrics.get("returnOnEquity")),
+                format_percentage(metrics.get("returnOnAssets")),
+                format_percentage(metrics.get("grossMargins")),
+                format_percentage(metrics.get("operatingMargins")),
+                format_percentage(metrics.get("profitMargins")),
+                metrics.get("beta", "N/A"),
+            ],
+        }
+        st.dataframe(pd.DataFrame(ret_data), width="stretch", hide_index=True)
 
-        # AI Analysis
-        st.markdown("---")
-        st.markdown("### AI Analysis")
-        custom_query = st.text_input(
-            "Ask a specific question (optional)",
-            placeholder=f"e.g., Is {ticker} overvalued compared to its peers?",
-            key="company_custom_query",
-        )
+    # AI Analysis
+    st.markdown("---")
+    st.markdown("### AI Analysis")
+    custom_query = st.text_input(
+        "Ask a specific question (optional)",
+        placeholder=f"e.g., Is {active_ticker} overvalued compared to its peers?",
+        key="company_custom_query",
+    )
 
-        if st.button("🤖 Generate AI Analysis", key="gen_ai_analysis", width="stretch"):
-            with st.spinner("Generating AI analysis..."):
-                orchestrator = get_orchestrator()
-                query = custom_query if custom_query else None
-                analysis = orchestrator.market_agent.analyze_with_ai(ticker, query)
-            st.markdown(analysis)
+    if st.button("🤖 Generate AI Analysis", key="gen_ai_analysis", width="stretch"):
+        with st.spinner("Generating AI analysis..."):
+            orchestrator = get_orchestrator()
+            query = custom_query if custom_query else None
+            result = orchestrator.market_agent.analyze_with_ai(active_ticker, query)
+        st.session_state["ca_ai_result"] = result
 
-        # SEC Filings section
-        st.markdown("---")
-        st.markdown("### Recent SEC Filings")
-        with st.spinner("Fetching SEC filings..."):
-            from utils.data_providers import get_company_filings
-            filings_10k = get_company_filings(ticker, "10-K", 3)
-            filings_10q = get_company_filings(ticker, "10-Q", 3)
+    if "ca_ai_result" in st.session_state:
+        st.markdown(st.session_state["ca_ai_result"])
 
-        f_col1, f_col2 = st.columns(2)
-        with f_col1:
-            st.markdown("**10-K Annual Reports**")
-            for f in filings_10k:
-                if "error" not in f:
-                    st.markdown(f"- 📄 Filed: {f.get('filing_date', 'N/A')} | {f.get('description', 'Annual Report')}")
-        with f_col2:
-            st.markdown("**10-Q Quarterly Reports**")
-            for f in filings_10q:
-                if "error" not in f:
-                    st.markdown(f"- 📄 Filed: {f.get('filing_date', 'N/A')} | {f.get('description', 'Quarterly Report')}")
+    # SEC Filings section
+    st.markdown("---")
+    st.markdown("### Recent SEC Filings")
+    with st.spinner("Fetching SEC filings..."):
+        from utils.data_providers import get_company_filings
+        filings_10k = get_company_filings(active_ticker, "10-K", 3)
+        filings_10q = get_company_filings(active_ticker, "10-Q", 3)
+
+    f_col1, f_col2 = st.columns(2)
+    with f_col1:
+        st.markdown("**10-K Annual Reports**")
+        for f in filings_10k:
+            if "error" not in f:
+                st.markdown(f"- 📄 Filed: {f.get('filing_date', 'N/A')} | {f.get('description', 'Annual Report')}")
+    with f_col2:
+        st.markdown("**10-Q Quarterly Reports**")
+        for f in filings_10q:
+            if "error" not in f:
+                st.markdown(f"- 📄 Filed: {f.get('filing_date', 'N/A')} | {f.get('description', 'Quarterly Report')}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
