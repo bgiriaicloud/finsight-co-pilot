@@ -2,9 +2,8 @@
 .env
 .env.*
 
-# Virtual environment
-venv/
-
+# Deployment
+deploy.sh
 deployment/
 
 # Python

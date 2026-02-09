@@ -48,7 +48,8 @@ class GeminiClient:
                 "Set GEMINI_API_KEY or GOOGLE_API_KEY in your .env file."
             )
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.0-flash")
+        self.model = genai.GenerativeModel(self.model_name)
 
     # ── internal retry helper ───────────────────────────────────────────
     def _call_with_retry(self, fn, max_retries: int = 4):
@@ -81,7 +82,7 @@ class GeminiClient:
             model = self.model
             if system_instruction:
                 model = genai.GenerativeModel(
-                    "gemini-2.0-flash",
+                    self.model_name,
                     system_instruction=system_instruction,
                 )
 
@@ -179,7 +180,7 @@ class GeminiClient:
             model = self.model
             if system_instruction:
                 model = genai.GenerativeModel(
-                    "gemini-2.0-flash",
+                    self.model_name,
                     system_instruction=system_instruction,
                 )
 
