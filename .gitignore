@@ -28,7 +28,8 @@ Thumbs.db
 # Generated files
 *.pptx
 *.pdf
-*.md
+# Removed broad *.md ignore to allow README.md tracking.
+
 
 gcp-key.json
 service-account.json
