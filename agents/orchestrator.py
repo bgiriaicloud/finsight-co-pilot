@@ -8,6 +8,7 @@ from agents.document_agent import DocumentAgent
 from agents.sentiment_agent import SentimentAgent
 from agents.risk_agent import RiskAgent
 from agents.report_agent import ReportAgent
+from utils.gcp_client import gcp_client
 
 SYSTEM_INSTRUCTION = """You are the Orchestrator of a multi-agent financial analysis system.
 Your role is to understand user queries and provide comprehensive financial analysis.
@@ -80,8 +81,12 @@ Category:"""
 
         tickers = self._extract_tickers(query)
         intent = self._classify_intent(query)
+        
+        # Log start of analysis to BigQuery
+        gcp_client.log_activity(", ".join(tickers) if tickers else "GEN", intent, "STARTED")
 
         # Step 2: Route to appropriate agent(s) based on intent
+        response = ""
         if "INVESTMENT_THESIS" in intent and tickers:
             if status_callback:
                 status_callback("market", f"Fetching market data for {', '.join(tickers)}...")
@@ -89,45 +94,48 @@ Category:"""
                 status_callback("sentiment", "Analyzing news sentiment...")
                 status_callback("risk", "Assessing risk factors...")
                 status_callback("report", "Generating investment thesis...")
-            return self.report_agent.generate_investment_thesis(tickers[0])
+            response = self.report_agent.generate_investment_thesis(tickers[0])
 
         elif "PEER_COMPARISON" in intent and len(tickers) >= 2:
             if status_callback:
                 status_callback("market", f"Comparing: {', '.join(tickers)}...")
                 status_callback("report", "Generating comparison report...")
-            return self.report_agent.generate_comparison_report(tickers)
+            response = self.report_agent.generate_comparison_report(tickers)
 
         elif "RISK" in intent and tickers:
             if status_callback:
                 status_callback("risk", f"Analyzing risks for {', '.join(tickers)}...")
             if len(tickers) > 1:
-                return self.risk_agent.compare_risks(tickers)
-            return self.risk_agent.comprehensive_risk_analysis(tickers[0])
+                response = self.risk_agent.compare_risks(tickers)
+            else:
+                response = self.risk_agent.comprehensive_risk_analysis(tickers[0])
 
         elif "SENTIMENT" in intent and tickers:
             if status_callback:
                 status_callback("sentiment", f"Analyzing sentiment for {', '.join(tickers)}...")
             if len(tickers) > 1:
-                return self.sentiment_agent.analyze_news_batch(tickers)
-            return self.sentiment_agent.analyze_sentiment(tickers[0])
+                response = self.sentiment_agent.analyze_news_batch(tickers)
+            else:
+                response = self.sentiment_agent.analyze_sentiment(tickers[0])
 
         elif "EARNINGS" in intent and tickers:
             if status_callback:
                 status_callback("market", "Pulling earnings data...")
                 status_callback("report", "Generating earnings analysis...")
-            return self.report_agent.generate_earnings_analysis(tickers[0])
+            response = self.report_agent.generate_earnings_analysis(tickers[0])
 
         elif "DOCUMENT" in intent and tickers:
             if status_callback:
                 status_callback("document", f"Analyzing filings for {tickers[0]}...")
-            return self.document_agent.analyze_filing_with_ai(tickers[0], query)
+            response = self.document_agent.analyze_filing_with_ai(tickers[0], query)
 
         elif "MARKET" in intent and tickers:
             if status_callback:
                 status_callback("market", f"Analyzing market data for {', '.join(tickers)}...")
             if len(tickers) > 1:
-                return self.market_agent.compare_with_ai(tickers, query)
-            return self.market_agent.analyze_with_ai(tickers[0], query)
+                response = self.market_agent.compare_with_ai(tickers, query)
+            else:
+                response = self.market_agent.analyze_with_ai(tickers[0], query)
 
         elif tickers:
             # Default: comprehensive analysis with multiple agents
@@ -136,14 +144,22 @@ Category:"""
                 status_callback("market", f"Fetching data for {', '.join(tickers)}...")
 
             if len(tickers) > 1:
-                return self.market_agent.compare_with_ai(tickers, query)
-            return self._comprehensive_single_stock(tickers[0], query, status_callback)
+                response = self.market_agent.compare_with_ai(tickers, query)
+            else:
+                response = self._comprehensive_single_stock(tickers[0], query, status_callback)
 
         else:
             # General question - use Gemini directly with financial context
             if status_callback:
                 status_callback("orchestrator", "Processing general query...")
-            return self.gemini.generate(query, system_instruction=SYSTEM_INSTRUCTION)
+            response = self.gemini.generate(query, system_instruction=SYSTEM_INSTRUCTION)
+            
+        # Log completion to BigQuery and notify Pub/Sub
+        gcp_client.log_activity(", ".join(tickers) if tickers else "GEN", intent, "COMPLETED")
+        if tickers:
+            gcp_client.publish_analysis_complete(tickers[0], intent, response)
+            
+        return response
 
     def _comprehensive_single_stock(self, ticker: str, query: str, status_callback=None) -> str:
         """Provide comprehensive analysis for a single stock."""

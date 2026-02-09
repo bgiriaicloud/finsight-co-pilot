@@ -2,8 +2,9 @@
 .env
 .env.*
 
-# Deployment
-deploy.sh
+# Virtual environment
+venv/
+
 deployment/
 
 # Python
@@ -29,3 +30,5 @@ Thumbs.db
 *.pdf
 *.md
 
+gcp-key.json
+service-account.json

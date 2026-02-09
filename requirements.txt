@@ -9,3 +9,7 @@ beautifulsoup4>=4.12.0
 lxml>=5.0.0
 html5lib>=1.1
 PyPDF2>=3.0.0
+google-cloud-firestore
+google-cloud-bigquery
+google-cloud-storage
+google-cloud-pubsub

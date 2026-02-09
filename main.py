@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from dotenv import load_dotenv
 import time
+from utils.gcp_client import gcp_client
 
 # Load environment variables
 load_dotenv()
@@ -273,6 +274,28 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
+    st.markdown("### ☁️ Cloud Infrastructure")
+    
+    # Status indicators for GCP Services
+    services = {
+        "Firestore": gcp_client.db is not None,
+        "BigQuery": gcp_client.bq is not None,
+        "Cloud Storage": gcp_client.storage is not None,
+        "Pub/Sub": gcp_client.publisher is not None
+    }
+    
+    for svc, status in services.items():
+        color = "#10B981" if status else "#EF4444"
+        icon = "●" if status else "○"
+        st.markdown(
+            f"<div style='font-size: 0.8rem; display: flex; justify-content: space-between;'>"
+            f"<span>{svc}</span>"
+            f"<span style='color: {color}; font-weight: bold;'>{icon}</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
+    st.markdown("---")
     st.markdown(
         "<p style='color:#64748B;font-size:0.75rem;text-align:center;'>"
         "Powered by Gemini &amp; Google Cloud</p>",
@@ -284,8 +307,14 @@ with st.sidebar:
 #  PAGE: DASHBOARD
 # ═══════════════════════════════════════════════════════════════════════════
 def render_dashboard():
-    st.markdown('<p class="main-header">📊 Financial Analyst Co-Pilot</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">AI-powered institutional-grade financial analysis</p>', unsafe_allow_html=True)
+    # Hero Image
+    hero_img_path = os.path.join("assets", "hero.png")
+    if os.path.exists(hero_img_path):
+        st.image(hero_img_path, width='stretch')
+    else:
+        st.markdown('<p class="main-header">📊 Financial Analyst Co-Pilot</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sub-header">AI-powered institutional-grade financial analysis</p>', unsafe_allow_html=True)
+    
     st.markdown("---")
 
     # Quick actions
@@ -348,6 +377,37 @@ def render_dashboard():
             if fig:
                 chart_cols[i].plotly_chart(fig, width="stretch")
 
+    # Cloud Connectivity Check (For local testing)
+    st.markdown("---")
+    with st.expander("🛠️ System Connectivity Check (GCP)"):
+        st.info("Ensure you have run `gcloud auth application-default login` for local testing.")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        if col1.button("🔥 Test Firestore"):
+            import uuid
+            session_id = str(uuid.uuid4())[:8]
+            gcp_client.save_chat_message(session_id, "system", "Connectivity check")
+            st.success(f"Test message sent to Firestore (DB: finsightcopilot)!")
+            
+        if col2.button("📊 Test BigQuery"):
+            gcp_client.log_activity("TEST", "Diagnostic", "SUCCESS")
+            st.success("Log entry sent to BigQuery (Dataset: financial_copilot)!")
+            
+        if col3.button("📦 Test Storage"):
+            # Create a simple test file
+            content = b"Connection Test"
+            import io
+            test_file = io.BytesIO(content)
+            url = gcp_client.upload_document(test_file, "system/connection_test.txt")
+            if url:
+                st.success(f"File uploaded to GCS bucket!")
+            else:
+                st.error("Upload failed (Check if bucket exists)")
+            
+        if col4.button("📢 Test Pub/Sub"):
+            gcp_client.publish_analysis_complete("TEST", "diagnostic", "Diagnostic summary")
+            st.success("Analysis notification sent to analyst-events topic!")
+
     # Sample queries section
     st.markdown("---")
     st.markdown("### Try These Queries")
@@ -378,25 +438,44 @@ def render_chat():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Chat input
-    if prompt := st.chat_input("Ask about any company, filing, or financial topic..."):
+    # Handle new chat input
+    prompt = st.chat_input("Ask about any company, filing, or financial topic...")
+    
+    if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
+        # Note: No rerun needed here, we'll process it below
+    
+    # Process the latest message if it's from user
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        user_query = st.session_state.messages[-1]["content"]
+        
         with st.chat_message("assistant"):
             st.session_state.agent_statuses = {}
             status_container = st.empty()
 
             with st.spinner("Agents analyzing your query..."):
                 orchestrator = get_orchestrator()
-                response = orchestrator.process_query(prompt, status_callback=update_agent_status)
+                # Use st.session_state.messages[-1]["content"] to be safe
+                response = orchestrator.process_query(user_query, status_callback=update_agent_status)
 
             status_container.empty()
             st.markdown(response)
 
+        # Save to Firestore and Session State
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.session_state.agent_statuses = {}
+        
+        # Persist to GCP
+        import uuid
+        if "chat_session_id" not in st.session_state:
+            st.session_state.chat_session_id = str(uuid.uuid4())
+        
+        gcp_client.save_chat_message(st.session_state.chat_session_id, "user", user_query)
+        gcp_client.save_chat_message(st.session_state.chat_session_id, "assistant", response)
+        
+        # Log to BigQuery
+        gcp_client.log_activity("CHAT", "Orchestrator", "COMPLETED")
+        st.rerun()
 
     # Suggested queries if no history
     if not st.session_state.messages:
@@ -497,16 +576,16 @@ def render_company_analysis():
         val_data = {
             "Metric": ["P/E (TTM)", "Forward P/E", "PEG Ratio", "P/B Ratio", "EV/Revenue", "Dividend Yield"],
             "Value": [
-                metrics.get("trailingPE", "N/A"),
-                metrics.get("forwardPE", "N/A"),
-                metrics.get("pegRatio", "N/A"),
-                metrics.get("priceToBook", "N/A"),
-                round(metrics.get("enterpriseValue", 0) / metrics.get("totalRevenue", 1), 2)
+                str(metrics.get("trailingPE", "N/A")),
+                str(metrics.get("forwardPE", "N/A")),
+                str(metrics.get("pegRatio", "N/A")),
+                str(metrics.get("priceToBook", "N/A")),
+                str(round(metrics.get("enterpriseValue", 0) / metrics.get("totalRevenue", 1), 2))
                 if metrics.get("enterpriseValue") and metrics.get("totalRevenue") else "N/A",
                 format_percentage(metrics.get("dividendYield")),
             ],
         }
-        st.dataframe(pd.DataFrame(val_data), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(val_data).astype(str), width="stretch", hide_index=True)
 
         st.markdown("### Returns & Efficiency")
         ret_data = {
@@ -517,10 +596,10 @@ def render_company_analysis():
                 format_percentage(metrics.get("grossMargins")),
                 format_percentage(metrics.get("operatingMargins")),
                 format_percentage(metrics.get("profitMargins")),
-                metrics.get("beta", "N/A"),
+                str(metrics.get("beta", "N/A")),
             ],
         }
-        st.dataframe(pd.DataFrame(ret_data), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(ret_data).astype(str), width="stretch", hide_index=True)
 
     # AI Analysis
     st.markdown("---")
@@ -634,7 +713,7 @@ def render_peer_comparison():
                     vals.append(f"{v:,.2f}" if isinstance(v, float) else str(v))
             comp_data[t] = vals
 
-        st.dataframe(pd.DataFrame(comp_data), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(comp_data).astype(str), width="stretch", hide_index=True)
 
         # Comparison charts
         st.markdown("### Visual Comparisons")
@@ -770,6 +849,14 @@ def render_document_analysis():
                 with st.spinner("Analyzing document with Gemini... This may take a moment."):
                     orchestrator = get_orchestrator()
                     file_bytes = uploaded_file.read()
+                    
+                    # Upload to GCS first
+                    import io
+                    gcs_file = io.BytesIO(file_bytes)
+                    gcs_url = gcp_client.upload_document(gcs_file, f"uploads/{uploaded_file.name}")
+                    if gcs_url:
+                        st.info(f"📄 Document archived in GCS: {uploaded_file.name}")
+                    
                     result = orchestrator.document_agent.analyze_uploaded_document(
                         file_bytes, uploaded_file.name, query
                     )
