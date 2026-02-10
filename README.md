@@ -3,7 +3,7 @@
 ![Financial Co-Pilot Branding](assets/hero.png)
 
 ## Overview
-**Financial Co-Pilot** is an AI-powered, institutional-grade financial analysis platform built with **Gemini 1.5 Flash** and **Google Cloud Platform (GCP)**. It empowers investors and analysts with deep-dive insights, real-time market data visualization, and automated document intelligence.
+**Financial Co-Pilot** is an AI-powered, institutional-grade financial analysis platform built with **Gemini 3.0 Flash** and **Google Cloud Platform (GCP)**. It empowers investors and analysts with deep-dive insights, real-time market data visualization, and automated document intelligence.
 
 ## 🚀 Key Features
 
@@ -57,7 +57,7 @@
     Create a `.env` file in the root directory:
     ```env
     GEMINI_API_KEY=your_gemini_api_key
-    GEMINI_MODEL=gemini-1.5-flash
+    GEMINI_MODEL=gemini-3.0-flash
     GOOGLE_CLOUD_PROJECT=your_project_id
     GCS_BUCKET_NAME=your_gcs_bucket_name
     GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account.json
