@@ -17,7 +17,7 @@
 ## 🛠️ Technology Stack
 
 *   **Frontend**: Streamlit (Premium institutional-grade design)
-*   **LLM**: Google Gemini 1.5 Flash (via `google-generativeai`)
+*   **LLM**: Google Gemini 3.0 Flash (via `google-generativeai`)
 *   **Infrastructure**: Google Cloud Platform (Firestore, BigQuery, GCS, Pub/Sub, Cloud Run)
 *   **Data Providers**: Yahoo Finance API, SEC EDGAR
 *   **Language**: Python 3.11+
